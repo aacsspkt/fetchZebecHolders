@@ -1,4 +1,5 @@
 import assert from 'assert';
+import BigNumber from 'bignumber.js';
 import dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -28,6 +29,7 @@ function chunkArray<T>(arr: Array<T>, chunkSize: number): T[][] {
 
 (async () => {
 	const connection = getConnection();
+	const unitsPerZebec = "1000000000";
 
 	const response = await connection.getProgramAccounts(new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"), {
 		filters: [
@@ -42,20 +44,21 @@ function chunkArray<T>(arr: Array<T>, chunkSize: number): T[][] {
 	});
 
 	const tokenAccounts = response.map((r) => r.pubkey);
-	console.log("token account count: %d", tokenAccounts.length);
+	const tokenAccountCount = tokenAccounts.length;
+	console.log("token account count: %d", tokenAccountCount);
 
 	const chunkList = chunkArray(tokenAccounts, 100);
-	console.log("chunk count: %d", chunkList.length);
+	const chunkCount = chunkList.length;
+	console.log("chunk count: %d", chunkCount);
 
 	const data: {
 		owner: string;
-		tokenAccount: string;
 		amount: string;
 	}[][] = [];
 
 	let index = 0;
 	while (index < chunkList.length) {
-		console.log(`fetching data. index: ${index}`);
+		console.log(`fetching data - index: ${index+1} out of ${chunkCount}`);
 		const chunk = chunkList[index];
 		const tokenInfos = await connection.getMultipleAccountsInfo(chunk, "confirmed");
 
@@ -63,10 +66,10 @@ function chunkArray<T>(arr: Array<T>, chunkSize: number): T[][] {
 			assert(tokenInfo, "Token account doesnot exists");
 			const tokenData = AccountLayout.decode(tokenInfo.data);
 
+			const amount = BigNumber(tokenData.amount.toString()).div(unitsPerZebec).toFixed();
 			return {
 				owner: tokenData.owner.toString(),
-				tokenAccount: chunk[j].toString(),
-				amount: tokenData.amount.toString(),
+				amount: amount,
 			};
 		});
 		data.push(tokenDataList);
@@ -75,7 +78,7 @@ function chunkArray<T>(arr: Array<T>, chunkSize: number): T[][] {
 	}
 
 	const holders = data.flat();
-	const holderWithAmount = holders.filter((h) => h.amount != "0");
+	const holderWithAmount = holders.filter((h) => !BigNumber(h.amount).isZero());
 	console.log("holders with amout count: %d", holderWithAmount.length);
 
 	fs.writeFileSync(path.resolve(__dirname, "zebecholders.json"), JSON.stringify(holderWithAmount), "utf-8");
